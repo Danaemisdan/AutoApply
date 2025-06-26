@@ -11,7 +11,7 @@ class LLMService {
     this.model = AI_MODEL;
     this.baseUrl = 'https://openrouter.ai/api/v1';
   }
-
+#myass 
   /**
    * Generate cover letter based on resume and job description
    */
