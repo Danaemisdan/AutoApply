@@ -1,0 +1,598 @@
+const { Telegraf } = require('telegraf');
+const db = require('./db');
+const llm = require('./llm');
+const parser = require('./parser');
+const oauth = require('./oauth');
+
+class TelegramBot {
+  constructor() {
+    this.bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
+    this.setupMiddleware();
+    this.setupCommands();
+    this.setupHandlers();
+  }
+
+  /**
+   * Setup bot middleware
+   */
+  setupMiddleware() {
+    // Log all updates
+    this.bot.use(async (ctx, next) => {
+      const start = new Date();
+      await next();
+      const ms = new Date() - start;
+      console.log('Response time: %sms', ms);
+    });
+
+    // Error handling middleware
+    this.bot.catch((err, ctx) => {
+      console.error(`Error for ${ctx.updateType}:`, err);
+      ctx.reply('❌ Sorry, something went wrong. Please try again later.');
+    });
+  }
+
+  /**
+   * Setup bot commands
+   */
+  setupCommands() {
+    // Start command
+    this.bot.start(async (ctx) => {
+      try {
+        const telegramId = ctx.from.id;
+        const userName = ctx.from.first_name || ctx.from.username || 'User';
+        
+        // Get or create user profile
+        await db.getUserProfile(telegramId);
+        
+        const welcomeMessage = `👋 Welcome ${userName}! I'm your AI-powered job application assistant.
+
+🤖 What I can help you with:
+
+📄 /resume - Upload your resume (PDF, DOCX, or TXT)
+💼 /apply [job description] - Generate a cover letter
+🔍 /jobs - Get job suggestions
+📧 /connectgmail - Connect your Gmail for auto-applying
+📤 /sendapplication - Send job application via email
+ℹ️ /help - Show this help message
+
+To get started, upload your resume using /resume or paste it as text.
+
+Need help? Just type /help anytime!`;
+
+        await ctx.reply(welcomeMessage);
+        
+        // Save conversation
+        await db.saveConversation(telegramId, '/start', welcomeMessage, 'command');
+        
+      } catch (error) {
+        console.error('Error in start command:', error);
+        await ctx.reply('❌ Sorry, there was an error setting up your profile. Please try again.');
+      }
+    });
+
+    // Help command
+    this.bot.help(async (ctx) => {
+      const telegramId = ctx.from.id;
+      
+      const helpMessage = `🤖 **Job Application Bot Help**
+
+**Commands:**
+📄 \`/resume\` - Upload or paste your resume
+💼 \`/apply [job description]\` - Generate cover letter
+🔍 \`/jobs\` - Get job suggestions
+📧 \`/connectgmail\` - Connect your Gmail account
+📤 \`/sendapplication\` - Send job application via email
+ℹ️ \`/help\` - Show this help
+
+**How to use:**
+1. Start by uploading your resume with \`/resume\`
+2. Use \`/apply\` followed by a job description to generate a cover letter
+3. Use \`/jobs\` to get personalized job suggestions
+4. Connect your Gmail with \`/connectgmail\` for auto-applying
+5. Use \`/sendapplication\` to send applications via email
+
+**Supported file types:** PDF, DOCX, TXT (max 10MB)
+
+**Example:**
+\`/apply Software Engineer position at Google focusing on React and Node.js development\`
+
+Need more help? Just ask!`;
+
+      await ctx.reply(helpMessage, { parse_mode: 'Markdown' });
+      await db.saveConversation(telegramId, '/help', helpMessage, 'command');
+    });
+
+    // Resume command
+    this.bot.command('resume', async (ctx) => {
+      const telegramId = ctx.from.id;
+      
+      const resumeMessage = `📄 **Resume Upload**
+
+Please upload your resume file (PDF, DOCX, or TXT) or paste your resume text.
+
+**Supported formats:**
+• PDF files
+• Word documents (DOCX)
+• Text files (TXT)
+• Plain text (just paste it)
+
+**File size limit:** 10MB
+
+Once uploaded, I'll extract the text and save it for generating cover letters and job suggestions.`;
+
+      await ctx.reply(resumeMessage, { parse_mode: 'Markdown' });
+      await db.saveConversation(telegramId, '/resume', resumeMessage, 'command');
+    });
+
+    // Apply command
+    this.bot.command('apply', async (ctx) => {
+      const telegramId = ctx.from.id;
+      const jobDescription = ctx.message.text.replace('/apply', '').trim();
+      
+      if (!jobDescription) {
+        const errorMessage = `❌ **Missing job description**
+
+Please provide a job description after the /apply command.
+
+**Example:**
+\`/apply Software Engineer at Google focusing on React development\`
+
+**Or use:** \`/apply [paste job description here]\``;
+        
+        await ctx.reply(errorMessage, { parse_mode: 'Markdown' });
+        return;
+      }
+
+      try {
+        // Check if user has a resume
+        const hasResume = await db.hasResume(telegramId);
+        if (!hasResume) {
+          const noResumeMessage = `❌ **No resume found**
+
+Please upload your resume first using /resume before generating a cover letter.`;
+          
+          await ctx.reply(noResumeMessage, { parse_mode: 'Markdown' });
+          return;
+        }
+
+        // Send loading message
+        const loadingMsg = await ctx.reply('🧠 Generating your cover letter...please wait.');
+        
+        // Get user's resume
+        const resumeData = await db.getResume(telegramId);
+        const userProfile = await db.getUserProfile(telegramId);
+        
+        // Generate cover letter
+        const coverLetter = await llm.generateCoverLetter(
+          resumeData.resume_text,
+          jobDescription,
+          userProfile.job_preferences || ''
+        );
+
+        // Delete loading message
+        await ctx.telegram.deleteMessage(ctx.chat.id, loadingMsg.message_id);
+        
+        // Send cover letter
+        const successMessage = `✅ **Cover Letter Generated Successfully!**
+
+Here's your personalized cover letter for the position:
+
+---
+
+${coverLetter}
+
+---
+
+💡 **Tips:**
+• Review and customize the letter before sending
+• Add specific company details if needed
+• Keep it professional and concise
+
+Need to generate another cover letter? Just use /apply with a different job description!`;
+
+        await ctx.reply(successMessage, { parse_mode: 'Markdown' });
+        
+        // Save conversation
+        await db.saveConversation(telegramId, jobDescription, coverLetter, 'cover_letter');
+        
+      } catch (error) {
+        console.error('Error in apply command:', error);
+        await ctx.reply('❌ Sorry, there was an error generating your cover letter. Please try again.');
+      }
+    });
+
+    // Jobs command
+    this.bot.command('jobs', async (ctx) => {
+      const telegramId = ctx.from.id;
+      
+      try {
+        // Send loading message
+        const loadingMsg = await ctx.reply('🔍 Finding relevant jobs for you...');
+        
+        // Get user profile and resume
+        const userProfile = await db.getUserProfile(telegramId);
+        const resumeData = await db.getResume(telegramId);
+        
+        // Generate job suggestions
+        const jobSuggestions = await llm.generateJobSuggestions(
+          userProfile.job_preferences || '',
+          resumeData.resume_text || ''
+        );
+
+        // Delete loading message
+        await ctx.telegram.deleteMessage(ctx.chat.id, loadingMsg.message_id);
+        
+        // Format and send job suggestions
+        const jobsMessage = `💼 **Job Suggestions for You**
+
+${jobSuggestions}
+
+💡 **Want more specific suggestions?**
+Update your job preferences by telling me what type of roles you're looking for!`;
+
+        await ctx.reply(jobsMessage, { parse_mode: 'Markdown' });
+        
+        // Save conversation
+        await db.saveConversation(telegramId, '/jobs', jobSuggestions, 'job_suggestions');
+        
+      } catch (error) {
+        console.error('Error in jobs command:', error);
+        await ctx.reply('❌ Sorry, there was an error finding jobs. Please try again.');
+      }
+    });
+
+    // Connect Gmail command
+    this.bot.command('connectgmail', async (ctx) => {
+      const telegramId = ctx.from.id;
+      
+      try {
+        // Check if Gmail is already connected
+        const isConnected = await oauth.isGmailConnected(telegramId);
+        
+        if (isConnected) {
+          const alreadyConnectedMessage = `📧 **Gmail Already Connected**
+
+Your Gmail account is already connected to the bot.
+
+**You can now:**
+• Use \`/sendapplication\` to send job applications via email
+• Your applications will be sent from your Gmail account
+
+To disconnect Gmail, use \`/disconnectgmail\``;
+          
+          await ctx.reply(alreadyConnectedMessage, { parse_mode: 'Markdown' });
+          return;
+        }
+
+        // Generate OAuth URL
+        const oauthURL = oauth.getAuthURL(telegramId);
+        const baseURL = process.env.NODE_ENV === 'production' 
+          ? `https://${process.env.RAILWAY_STATIC_URL || 'your-app.railway.app'}`
+          : `http://localhost:${process.env.PORT || 3000}`;
+        
+        const connectMessage = `📧 **Connect Your Gmail Account**
+
+To enable automatic job application sending, please connect your Gmail account:
+
+🔗 **Click here to connect:** ${oauthURL}
+
+**What this allows:**
+• Send job applications directly from your Gmail
+• Automatic email sending for job applications
+• Secure OAuth2 authentication with Google
+
+**Security:**
+• Only Gmail sending permissions are requested
+• Your credentials are stored securely
+• You can disconnect anytime with \`/disconnectgmail\`
+
+After connecting, return to Telegram and use \`/sendapplication\` to send job applications!`;
+
+        await ctx.reply(connectMessage, { parse_mode: 'Markdown' });
+        await db.saveConversation(telegramId, '/connectgmail', 'Gmail connection initiated', 'oauth');
+        
+      } catch (error) {
+        console.error('Error in connectgmail command:', error);
+        await ctx.reply('❌ Sorry, there was an error setting up Gmail connection. Please try again.');
+      }
+    });
+
+    // Send application command
+    this.bot.command('sendapplication', async (ctx) => {
+      const telegramId = ctx.from.id;
+      const messageText = ctx.message.text.replace('/sendapplication', '').trim();
+      
+      if (!messageText) {
+        const helpMessage = `📤 **Send Job Application**
+
+To send a job application via email, please provide the job details in this format:
+
+\`/sendapplication Company Name|job@company.com|Software Engineer|Your cover letter here\`
+
+**Example:**
+\`/sendapplication Google|jobs@google.com|Software Engineer|I am excited to apply for the Software Engineer position...\`
+
+**Requirements:**
+• Gmail must be connected (\`/connectgmail\`)
+• Resume must be uploaded (\`/resume\`)
+• Job details must be provided
+
+**Format:** Company|Email|Job Title|Cover Letter`;
+        
+        await ctx.reply(helpMessage, { parse_mode: 'Markdown' });
+        return;
+      }
+
+      try {
+        // Check if Gmail is connected
+        const isConnected = await oauth.isGmailConnected(telegramId);
+        if (!isConnected) {
+          const notConnectedMessage = `❌ **Gmail Not Connected**
+
+Please connect your Gmail account first using \`/connectgmail\` before sending applications.`;
+          
+          await ctx.reply(notConnectedMessage, { parse_mode: 'Markdown' });
+          return;
+        }
+
+        // Check if user has a resume
+        const hasResume = await db.hasResume(telegramId);
+        if (!hasResume) {
+          const noResumeMessage = `❌ **No Resume Found**
+
+Please upload your resume first using \`/resume\` before sending applications.`;
+          
+          await ctx.reply(noResumeMessage, { parse_mode: 'Markdown' });
+          return;
+        }
+
+        // Parse job details
+        const parts = messageText.split('|');
+        if (parts.length < 4) {
+          const errorMessage = '❌ **Invalid Format**\n\nPlease use the format: Company|Email|Job Title|Cover Letter\n\n**Example:**\n`/sendapplication Google|jobs@google.com|Software Engineer|I am excited to apply...`';
+          await ctx.reply(errorMessage, { parse_mode: 'Markdown' });
+          return;
+        }
+
+        const [companyName, companyEmail, jobTitle, coverLetter] = parts;
+
+        // Send loading message
+        const loadingMsg = await ctx.reply('📤 Sending your job application...please wait.');
+        
+        // Send the application
+        const jobDetails = {
+          company_name: companyName,
+          company_email: companyEmail,
+          job_title: jobTitle
+        };
+
+        await oauth.sendJobApplication(telegramId, jobDetails, coverLetter);
+
+        // Delete loading message
+        await ctx.telegram.deleteMessage(ctx.chat.id, loadingMsg.message_id);
+        
+        // Success message
+        const successMessage = `✅ **Job Application Sent Successfully!**
+
+📧 **Sent to:** ${companyEmail}
+🏢 **Company:** ${companyName}
+💼 **Position:** ${jobTitle}
+
+Your application has been sent from your Gmail account. You should receive a confirmation email shortly.
+
+**Next steps:**
+• Follow up with the company in a few days
+• Check your email for any responses
+• Use \`/jobs\` to find more opportunities`;
+
+        await ctx.reply(successMessage, { parse_mode: 'Markdown' });
+        await db.saveConversation(telegramId, `Sent application to ${companyName}`, 'Application sent successfully', 'email_sent');
+        
+      } catch (error) {
+        console.error('Error in sendapplication command:', error);
+        await ctx.reply('❌ Sorry, there was an error sending your application. Please check your Gmail connection and try again.');
+      }
+    });
+
+    // Disconnect Gmail command
+    this.bot.command('disconnectgmail', async (ctx) => {
+      const telegramId = ctx.from.id;
+      
+      try {
+        // Check if Gmail is connected
+        const isConnected = await oauth.isGmailConnected(telegramId);
+        
+        if (!isConnected) {
+          const notConnectedMessage = `📧 **Gmail Not Connected**
+
+Your Gmail account is not currently connected to the bot.
+
+To connect Gmail, use \`/connectgmail\``;
+          
+          await ctx.reply(notConnectedMessage, { parse_mode: 'Markdown' });
+          return;
+        }
+
+        // Disconnect Gmail
+        await oauth.disconnectGmail(telegramId);
+        
+        const disconnectMessage = `✅ **Gmail Disconnected Successfully**
+
+Your Gmail account has been disconnected from the bot.
+
+**What this means:**
+• No more automatic email sending
+• Your Gmail tokens have been removed
+• You can reconnect anytime with \`/connectgmail\`
+
+To reconnect Gmail, use \`/connectgmail\``;
+        
+        await ctx.reply(disconnectMessage, { parse_mode: 'Markdown' });
+        await db.saveConversation(telegramId, '/disconnectgmail', 'Gmail disconnected', 'oauth');
+        
+      } catch (error) {
+        console.error('Error in disconnectgmail command:', error);
+        await ctx.reply('❌ Sorry, there was an error disconnecting Gmail. Please try again.');
+      }
+    });
+  }
+
+  /**
+   * Setup message handlers
+   */
+  setupHandlers() {
+    // Handle document uploads (resume files)
+    this.bot.on('document', async (ctx) => {
+      const telegramId = ctx.from.id;
+      const document = ctx.message.document;
+      
+      try {
+        // Check file size
+        if (document.file_size > 10 * 1024 * 1024) { // 10MB
+          await ctx.reply('❌ File too large. Please upload a file smaller than 10MB.');
+          return;
+        }
+
+        // Send loading message
+        const loadingMsg = await ctx.reply('📄 Processing your resume...please wait.');
+        
+        // Get file
+        const file = await ctx.telegram.getFile(document.file_id);
+        const fileUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+        
+        // Download file
+        const response = await fetch(fileUrl);
+        const buffer = await response.arrayBuffer();
+        
+        // Parse file
+        const extractedText = await parser.parseFile(Buffer.from(buffer), document.file_name);
+        const cleanedText = parser.cleanText(extractedText);
+        
+        // Validate text
+        parser.validateExtractedText(cleanedText);
+        
+        // Save to database
+        await db.saveResume(telegramId, cleanedText, document.file_name);
+        
+        // Delete loading message
+        await ctx.telegram.deleteMessage(ctx.chat.id, loadingMsg.message_id);
+        
+        // Send success message
+        const successMessage = `✅ **Resume Uploaded Successfully!**
+
+📄 **File:** ${document.file_name}
+📝 **Text extracted:** ${cleanedText.length} characters
+
+Your resume has been saved and is ready for generating cover letters and job suggestions.
+
+**Next steps:**
+• Use \`/apply [job description]\` to generate a cover letter
+• Use \`/jobs\` to get job suggestions
+• Use \`/connectgmail\` to enable email sending
+• Upload a new resume anytime with \`/resume\``;
+
+        await ctx.reply(successMessage, { parse_mode: 'Markdown' });
+        
+        // Save conversation
+        await db.saveConversation(telegramId, `Uploaded: ${document.file_name}`, 'Resume processed successfully', 'resume_upload');
+        
+      } catch (error) {
+        console.error('Error processing document:', error);
+        await ctx.reply(`❌ Error processing file: ${error.message}`);
+      }
+    });
+
+    // Handle text messages (resume text or general queries)
+    this.bot.on('text', async (ctx) => {
+      const telegramId = ctx.from.id;
+      const message = ctx.message.text;
+      
+      // Skip commands
+      if (message.startsWith('/')) {
+        return;
+      }
+
+      try {
+        // Check if this looks like a resume (long text)
+        if (message.length > 200) {
+          // Likely a resume - save it
+          const cleanedText = parser.cleanText(message);
+          parser.validateExtractedText(cleanedText);
+          
+          await db.saveResume(telegramId, cleanedText, 'pasted_text.txt');
+          
+          const successMessage = `✅ **Resume Saved Successfully!**
+
+📝 **Text length:** ${cleanedText.length} characters
+
+Your resume has been saved and is ready for generating cover letters and job suggestions.
+
+**Next steps:**
+• Use \`/apply [job description]\` to generate a cover letter
+• Use \`/jobs\` to get job suggestions
+• Use \`/connectgmail\` to enable email sending`;
+
+          await ctx.reply(successMessage, { parse_mode: 'Markdown' });
+          await db.saveConversation(telegramId, 'Pasted resume text', 'Resume saved successfully', 'resume_text');
+          
+        } else {
+          // Short message - treat as general query or job preferences
+          const userProfile = await db.getUserProfile(telegramId);
+          
+          // If user doesn't have job preferences set, treat this as preferences
+          if (!userProfile.job_preferences) {
+            await db.updateUserProfile(telegramId, { job_preferences: message });
+            
+            const preferencesMessage = `✅ **Job Preferences Saved!**
+
+Your preferences have been saved: "${message}"
+
+I'll use this information to provide better job suggestions and cover letters.
+
+**Commands you can use now:**
+• \`/jobs\` - Get job suggestions based on your preferences
+• \`/resume\` - Upload your resume
+• \`/apply [job description]\` - Generate cover letters
+• \`/connectgmail\` - Connect Gmail for auto-applying`;
+
+            await ctx.reply(preferencesMessage, { parse_mode: 'Markdown' });
+            await db.saveConversation(telegramId, message, 'Job preferences saved', 'preferences');
+            
+          } else {
+            // Generate AI response for general queries
+            const response = await llm.generateResponse(message, 'User has resume and preferences set');
+            
+            await ctx.reply(response);
+            await db.saveConversation(telegramId, message, response, 'general');
+          }
+        }
+        
+      } catch (error) {
+        console.error('Error processing text message:', error);
+        await ctx.reply('❌ Sorry, there was an error processing your message. Please try again.');
+      }
+    });
+  }
+
+  /**
+   * Launch the bot
+   */
+  launch() {
+    console.log('🤖 Starting Telegram bot...');
+    this.bot.launch();
+    console.log('✅ Bot is running!');
+    
+    // Enable graceful stop
+    process.once('SIGINT', () => this.bot.stop('SIGINT'));
+    process.once('SIGTERM', () => this.bot.stop('SIGTERM'));
+  }
+
+  /**
+   * Get bot instance
+   */
+  getBot() {
+    return this.bot;
+  }
+}
+
+module.exports = TelegramBot;
