@@ -1,5 +1,5 @@
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const AI_MODEL = process.env.AI_MODEL || 'deepseek-chat';
+const AI_MODEL = process.env.AI_MODEL || 'deepseek/deepseek-r1-0528:free';
 
 if (!OPENROUTER_API_KEY) {
   throw new Error('Missing OpenRouter API key. Please check your environment variables.');
