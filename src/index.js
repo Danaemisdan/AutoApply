@@ -108,7 +108,17 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
-// Webhook endpoint for Telegram (optional, for production)
+// Webhook endpoint for Telegram (for production webhook mode)
+app.post('/telegram-webhook', express.raw({ type: 'application/json' }), (req, res) => {
+  // This endpoint handles Telegram webhook updates
+  if (telegramBot) {
+    telegramBot.getBot().handleUpdate(req.body, res);
+  } else {
+    res.status(500).send('Bot not initialized');
+  }
+});
+
+// Legacy webhook endpoint for Telegram (optional, for production)
 app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
   // This endpoint can be used for webhook-based bot updates
   // For now, we're using polling, but this is here for future use
@@ -139,7 +149,24 @@ async function startBot() {
   try {
     console.log('🚀 Initializing Telegram bot...');
     telegramBot = new TelegramBot();
-    telegramBot.launch();
+    
+    // Use webhooks for production, polling for development
+    if (process.env.NODE_ENV === 'production') {
+      const BASE_URL = process.env.BASE_URL || process.env.RAILWAY_STATIC_URL || 'https://your-app.railway.app';
+      console.log('🌐 Using webhook mode with URL:', BASE_URL);
+      
+      // Set up webhook
+      telegramBot.getBot().launch({
+        webhook: {
+          domain: BASE_URL,
+          port: process.env.PORT || 3000
+        }
+      });
+    } else {
+      console.log('🔄 Using polling mode for development');
+      telegramBot.launch();
+    }
+    
     console.log('✅ Telegram bot started successfully');
   } catch (error) {
     console.error('❌ Failed to start Telegram bot:', error);

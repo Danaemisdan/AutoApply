@@ -267,7 +267,7 @@ To disconnect Gmail, use \`/disconnectgmail\``;
         // Generate OAuth URL
         const oauthURL = oauth.getAuthURL(telegramId);
         const baseURL = process.env.NODE_ENV === 'production' 
-          ? `https://${process.env.RAILWAY_STATIC_URL || 'your-app.railway.app'}`
+          ? (process.env.BASE_URL || process.env.RAILWAY_STATIC_URL || 'https://your-app.railway.app')
           : `http://localhost:${process.env.PORT || 3000}`;
         
         const connectMessage = `📧 **Connect Your Gmail Account**
