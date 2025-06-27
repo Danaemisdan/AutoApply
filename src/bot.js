@@ -539,6 +539,7 @@ To reconnect Gmail, use \`/connectgmail\``;
    */
   launch() {
     console.log('🤖 Starting Telegram bot...');
+    this.bot.launch();
     console.log('✅ Bot is running!');
     
     // Enable graceful stop
