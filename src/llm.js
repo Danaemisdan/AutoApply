@@ -1,5 +1,5 @@
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const AI_MODEL = process.env.AI_MODEL || 'deepseek/deepseek-r1-0528:free';
+const AI_MODEL = process.env.AI_MODEL || 'mistralai/mistral-small-3.2-24b-instruct:free';
 
 // Force redeploy - Railway deployment fix
 if (!OPENROUTER_API_KEY) {

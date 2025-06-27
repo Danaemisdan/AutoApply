@@ -60,8 +60,8 @@ GOOGLE_REDIRECT_URI=https://your-app.railway.app/auth/google/callback
 PORT=3000
 NODE_ENV=production
 
-# Optional: Custom AI Model (default: deepseek-chat)
-AI_MODEL=deepseek-chat
+# Optional: Custom AI Model (default: mistralai/mistral-small-3.2-24b-instruct:free)
+AI_MODEL=mistralai/mistral-small-3.2-24b-instruct:free
 ```
 
 ### 3. Google Cloud Setup
