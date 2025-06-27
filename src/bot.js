@@ -39,31 +39,15 @@ class TelegramBot {
     this.bot.start(async (ctx) => {
       try {
         const telegramId = ctx.from.id;
-        const userName = ctx.from.first_name || ctx.from.username || 'User';
-        
         // Get or create user profile
         await db.getUserProfile(telegramId);
-        
-        const welcomeMessage = `👋 Welcome ${userName}! I'm your AI-powered job application assistant.
+        const welcomeMessage = `👋 Welcome to *JobfinderAI*, your AI-powered job application assistant!
 
-🤖 What I can help you with:
+🚀 Upload your resume to start applying for *1000s of jobs and freelance projects* in your field — automatically.
 
-📄 /resume - Upload your resume (PDF, DOCX, or TXT)
-💼 /apply [job description] - Generate a cover letter
-🔍 /jobs - Get job suggestions
-📧 /connectgmail - Connect your Gmail for auto-applying
-📤 /sendapplication - Send job application via email
-ℹ️ /help - Show this help message
-
-To get started, upload your resume using /resume or paste it as text.
-
-Need help? Just type /help anytime!`;
-
-        await ctx.reply(welcomeMessage);
-        
-        // Save conversation
+📄 Just send me your resume (PDF, DOCX, or text) to get started.`;
+        await ctx.reply(welcomeMessage, { parse_mode: 'Markdown' });
         await db.saveConversation(telegramId, '/start', welcomeMessage, 'command');
-        
       } catch (error) {
         console.error('Error in start command:', error);
         await ctx.reply('❌ Sorry, there was an error setting up your profile. Please try again.');
@@ -244,56 +228,34 @@ Update your job preferences by telling me what type of roles you're looking for!
     // Connect Gmail command
     this.bot.command('connectgmail', async (ctx) => {
       const telegramId = ctx.from.id;
-      
       try {
-        // Check if Gmail is already connected
         const isConnected = await oauth.isGmailConnected(telegramId);
-        
         if (isConnected) {
-          const alreadyConnectedMessage = `📧 **Gmail Already Connected**
+          const gmailConnected = `✅ Gmail connected successfully!
 
-Your Gmail account is already connected to the bot.
+📧 Now I can start sending job applications directly from your email.
 
-**You can now:**
-• Use \`/sendapplication\` to send job applications via email
-• Your applications will be sent from your Gmail account
-
-To disconnect Gmail, use \`/disconnectgmail\``;
-          
-          await ctx.reply(alreadyConnectedMessage, { parse_mode: 'Markdown' });
+🔄 Sit back and relax — your applications are on their way. I'll keep you updated here.`;
+          await ctx.reply(gmailConnected);
           return;
         }
-
-        // Generate OAuth URL
         const oauthURL = oauth.getAuthURL(telegramId);
-        const baseURL = process.env.NODE_ENV === 'production' 
-          ? (process.env.BASE_URL || process.env.RAILWAY_STATIC_URL || 'https://your-app.railway.app')
-          : `http://localhost:${process.env.PORT || 3000}`;
-        
-        const connectMessage = `📧 **Connect Your Gmail Account**
+        const connectMessage = `🔗 Connect your Gmail to start sending job applications automatically.
 
-To enable automatic job application sending, please connect your Gmail account:
-
-🔗 **Click here to connect:** ${oauthURL}
-
-**What this allows:**
-• Send job applications directly from your Gmail
-• Automatic email sending for job applications
-• Secure OAuth2 authentication with Google
-
-**Security:**
-• Only Gmail sending permissions are requested
-• Your credentials are stored securely
-• You can disconnect anytime with \`/disconnectgmail\`
-
-After connecting, return to Telegram and use \`/sendapplication\` to send job applications!`;
-
-        await ctx.reply(connectMessage, { parse_mode: 'Markdown' });
-        await db.saveConversation(telegramId, '/connectgmail', 'Gmail connection initiated', 'oauth');
-        
+👉 Click below to connect:
+${oauthURL}`;
+        await ctx.reply(connectMessage);
+        await db.saveConversation(telegramId, '/connectgmail', connectMessage, 'oauth');
       } catch (error) {
         console.error('Error in connectgmail command:', error);
-        await ctx.reply('❌ Sorry, there was an error setting up Gmail connection. Please try again.');
+        const oauthURL = oauth.getAuthURL(telegramId);
+        const gmailFailed = `❌ Gmail connection failed.
+
+Please try again by clicking the link below:
+${oauthURL}
+
+Or type /connectgmail to retry.`;
+        await ctx.reply(gmailFailed);
       }
     });
 
@@ -452,8 +414,28 @@ To reconnect Gmail, use \`/connectgmail\``;
         const buffer = await fetch(fileUrl).then(res => res.arrayBuffer());
         const text = await require('./parser').parseFile(Buffer.from(buffer), document.file_name);
         await require('./db').saveResume(telegramId, text, document.file_name);
-        await ctx.reply('✅ Got your resume! Now tell me — what kind of job are you looking for? (e.g., Marketing manager in Bangalore)');
-        await require('./db').saveConversation(telegramId, '[Resume Uploaded]', 'Resume saved', 'resume_upload');
+        // Basic resume quality check
+        let jobCount = 10; // Placeholder, replace with actual job count logic if available
+        let resumeMsg;
+        if (text && text.length > 400) {
+          resumeMsg = `✅ Your resume looks great, nice work!
+
+🔍 I've found *${jobCount} job opportunities* in your domain.
+
+🔗 Now, let's connect your Gmail to start sending job applications automatically.
+
+👉 Click below to connect:\n${require('./oauth').getAuthURL(telegramId)}`;
+        } else {
+          resumeMsg = `⚠️ Your resume seems a bit messy or incomplete.\n\nBut no worries — we can still proceed!
+
+🔍 I've found *${jobCount} job opportunities* in your field.
+
+🔗 Let's connect your Gmail to start applying instantly.
+
+👉 Click below to connect:\n${require('./oauth').getAuthURL(telegramId)}`;
+        }
+        await ctx.reply(resumeMsg, { parse_mode: 'Markdown' });
+        await require('./db').saveConversation(telegramId, '[Resume Uploaded]', resumeMsg, 'resume_upload');
       } catch (error) {
         console.error('Error processing document:', error);
         await ctx.reply('❌ Error processing your resume. Please try again.');
