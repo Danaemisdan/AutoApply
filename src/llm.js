@@ -6,6 +6,8 @@ if (!OPENROUTER_API_KEY) {
   throw new Error('Missing OpenRouter API key. Please check your environment variables.');
 }
 
+console.log('🤖 Using AI Model:', AI_MODEL);
+
 class LLMService {
   constructor() {
     this.apiKey = OPENROUTER_API_KEY;
