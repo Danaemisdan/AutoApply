@@ -123,11 +123,59 @@ class TelegramBot {
         const fileUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
         const buffer = await fetch(fileUrl).then(res => res.arrayBuffer());
         const text = await parser.parseFile(Buffer.from(buffer), ctx.message.document.file_name);
-        await this.handleResume(ctx, telegramId, text, state);
+        // Save resume
+        await db.saveResume(telegramId, text, ctx.message.document.file_name);
+        // Scrape jobs
+        const jobs = await require('./scraper/scraper').scrapeRemotiveJobs(telegramId);
+        state.jobCount = jobs.length;
+        state.step = 'AWAITING_APPLY_DECISION';
+        await ctx.reply(`✅ Got your resume! I found ${jobs.length} jobs matching your profile.\n\nDo you want me to apply to them directly?`,
+          Markup.keyboard([['Yes', 'No']]).oneTime().resize()
+        );
       } catch (error) {
-        console.error(`[${telegramId}] Error parsing resume:`, error);
-        await ctx.reply('❌ Error processing your resume. Please try again.');
+        console.error(`[${telegramId}] Error parsing resume or scraping jobs:`, error);
+        await ctx.reply('❌ Error processing your resume or scraping jobs. Please try again or upload a different file.');
       }
+    });
+
+    // Step 3: Handle apply decision
+    this.bot.on('text', async (ctx, next) => {
+      const telegramId = ctx.from.id.toString();
+      const text = ctx.message.text.trim().toLowerCase();
+      const state = userState[telegramId] || {};
+      if (state.step === 'AWAITING_APPLY_DECISION') {
+        if (text === 'yes') {
+          // Check Gmail auth
+          const gmailStatus = await require('./db').getGmailTokens(telegramId);
+          if (!gmailStatus || !gmailStatus.access_token) {
+            const baseUrl = process.env.BASE_URL;
+            const oauthUrl = `${baseUrl.replace(/\/$/, '')}/auth/gmail/initiate/${telegramId}`;
+            await ctx.reply('Please sign in with Google to send applications:',
+              Markup.inlineKeyboard([
+                [Markup.button.url('Sign in with Google', oauthUrl)]
+              ])
+            );
+            state.step = 'AWAITING_OAUTH';
+            return;
+          }
+          // Send up to 25 applications
+          const resume = await db.getResume(telegramId);
+          const sent = await require('./scraper/emailer').sendEmailsToScrapedJobs(telegramId, resume.resume_text);
+          if (sent >= 25) {
+            await ctx.reply('✅ Sent 25 applications! For more, please subscribe.');
+          } else {
+            await ctx.reply(`✅ Sent ${sent} applications!`);
+          }
+          state.step = 'DONE';
+        } else if (text === 'no') {
+          await ctx.reply('Okay! Let me know if you want to apply later.');
+          state.step = 'DONE';
+        } else {
+          await ctx.reply('Please tap Yes or No.');
+        }
+        return;
+      }
+      await next();
     });
   }
 
