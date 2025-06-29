@@ -1,3 +1,5 @@
+console.log("=== JOBFINDERAI: NEW BOT CODE RUNNING (bot.js) ===");
+
 const { Telegraf, Markup } = require('telegraf');
 const db = require('./db');
 const llm = require('./llm');
@@ -40,12 +42,14 @@ class TelegramBot {
     this.bot.on('text', async (ctx, next) => {
       const telegramId = ctx.from.id.toString();
       const text = ctx.message.text.trim().toLowerCase();
+      console.log(`[${telegramId}] Incoming message: ${text}`);
       if (!userState[telegramId]) userState[telegramId] = { step: 'GREETING' };
       const state = userState[telegramId];
       console.log(`[${telegramId}] State: ${state.step}, Message: ${text}`);
 
-      // Step 1: Greeting
-      if (state.step === 'GREETING' && (text === 'hi' || text === '/start')) {
+      // Always respond to hi or /start with the button-driven flow
+      if (text === 'hi' || text === '/start') {
+        console.log(`[${telegramId}] Reply: 👋 Hello! Do you want to apply for jobs?`);
         await ctx.reply('👋 Hello! Do you want to apply for jobs?', Markup.keyboard([['Yes', 'No']]).oneTime().resize());
         state.step = 'AWAITING_YESNO';
         return;
