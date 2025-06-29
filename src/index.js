@@ -77,6 +77,7 @@ app.get('/auth/google/callback', async (req, res) => {
 
 // Gmail OAuth endpoints
 app.get('/auth/gmail/initiate/:telegramId', (req, res) => {
+  console.log('HIT /auth/gmail/initiate with', req.params.telegramId);
   const { telegramId } = req.params;
   const url = gmailOAuth.getAuthUrl(telegramId);
   res.redirect(url);
