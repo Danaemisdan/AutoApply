@@ -41,14 +41,9 @@ telegramBot = botInstance.getBot();
 
 // Webhook for production, polling for local/dev
 if (process.env.NODE_ENV === 'production') {
-  // Webhook mode
+  // Webhook mode: let Express handle the port, do NOT pass port to bot.launch
   app.use(botInstance.getBot().webhookCallback('/telegram-webhook'));
-  botInstance.getBot().launch({
-    webhook: {
-      domain: BASE_URL.replace(/\/$/, ''), // Remove trailing slash if any
-      port: PORT,
-    }
-  });
+  botInstance.getBot().launch();
   console.log('🚀 Bot running in webhook mode at:', `${BASE_URL}/telegram-webhook`);
 } else {
   // Polling mode for local/dev
@@ -152,4 +147,4 @@ app.listen(PORT, () => {
   console.log(`🔐 OAuth URL: ${BASE_URL}/auth/google`);
   console.log(`🤖 Bot is ready to receive messages!`);
   console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
-}); 
+});
