@@ -3,7 +3,11 @@ const db = require('./db');
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'https://thejobfinderai.com/auth/gmail/callback';
+const BASE_URL = process.env.BASE_URL;
+if (!BASE_URL) {
+  throw new Error('BASE_URL is not set! Set BASE_URL in your Railway environment variables.');
+}
+const REDIRECT_URI = `${BASE_URL.replace(/\/$/, '')}/auth/gmail/callback`;
 
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.send',

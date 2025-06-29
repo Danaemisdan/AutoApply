@@ -71,10 +71,18 @@ class TelegramBot {
       if (state.step === 'AWAITING_PREFERENCES') {
         state.preferences = text;
         await db.updateUserProfile(telegramId, { job_preferences: text });
+        const baseUrl = process.env.BASE_URL;
+        if (!baseUrl) {
+          console.error('BASE_URL is not set! Set BASE_URL in your Railway environment variables.');
+          await ctx.reply('❌ Server misconfiguration: BASE_URL is not set. Please contact support.');
+          return;
+        }
+        const oauthUrl = `${baseUrl.replace(/\/$/, '')}/auth/gmail/initiate/${telegramId}`;
+        console.log(`[${telegramId}] OAuth URL: ${oauthUrl}`);
         await ctx.reply(
           'Great! Now, to send job applications directly from your email, please sign in with Google:',
           Markup.inlineKeyboard([
-            [Markup.button.url('Sign in with Google', `${process.env.BASE_URL}/auth/gmail/initiate/${telegramId}`)]
+            [Markup.button.url('Sign in with Google', oauthUrl)]
           ])
         );
         state.step = 'AWAITING_OAUTH';
