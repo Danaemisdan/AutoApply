@@ -93,9 +93,19 @@ class TelegramBot {
         state.oauthPendingMsg = await ctx.reply('⏳ Waiting for Gmail connection...');
         return;
       }
-      // Step 4: After OAuth, ready to apply
-      if (state.step === 'READY_TO_APPLY' && text === 'apply') {
-        await this.startApplying(ctx, telegramId, state);
+      // Step 4: Confirm applying to jobs
+      if (state.step === 'AWAITING_APPLY_CONFIRM') {
+        if (text === 'yes') {
+          await ctx.reply('📤 Applying to jobs...');
+          // TODO: Actually send emails using Gmail
+          await ctx.reply('🎉 All done! Applied to 20 jobs. Check your Gmail Sent folder!');
+          state.step = 'DONE';
+        } else if (text === 'no') {
+          await ctx.reply('Alright, whenever you\'re ready just type "apply".');
+          state.step = 'READY_TO_APPLY';
+        } else {
+          await ctx.reply('Please tap Yes or No.');
+        }
         return;
       }
       // Fallback
@@ -136,7 +146,7 @@ class TelegramBot {
       state.jobCount = jobCount;
     } catch (error) {
       console.error(`[${telegramId}] Error in handleResume:`, error);
-      await ctx.reply('Hmm... I couldn't read your resume perfectly. Want to send it again or type your job role and skills manually?');
+      await ctx.reply("Hmm... I couldn't read your resume perfectly. Want to send it again or type your job role and skills manually?");
     }
   }
 
@@ -151,22 +161,6 @@ class TelegramBot {
     await ctx.reply(`I found **${state.jobCount || 20} jobs** matching your profile. You can apply to 20 for free. Want me to start applying now?`,
       Markup.keyboard([['Yes', 'No']]).oneTime().resize());
     state.step = 'AWAITING_APPLY_CONFIRM';
-    this.bot.on('text', async (ctx2) => {
-      const text2 = ctx2.message.text.trim().toLowerCase();
-      if (state.step === 'AWAITING_APPLY_CONFIRM') {
-        if (text2 === 'yes') {
-          await ctx2.reply('📤 Applying to jobs...');
-          // TODO: Actually send emails using Gmail
-          await ctx2.reply('🎉 All done! Applied to 20 jobs. Check your Gmail Sent folder!');
-          state.step = 'DONE';
-        } else if (text2 === 'no') {
-          await ctx2.reply('Alright, whenever you're ready just type "apply".');
-          state.step = 'READY_TO_APPLY';
-        } else {
-          await ctx2.reply('Please tap Yes or No.');
-        }
-      }
-    });
   }
 
   /**
