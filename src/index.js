@@ -8,6 +8,7 @@ const oauth = require('./oauth');
 const scraper = require('./scraper/scraper');
 const emailer = require('./scraper/emailer');
 const db = require('./db');
+const gmailOAuth = require('./gmail_oauth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -75,6 +76,31 @@ app.get('/auth/google/callback', async (req, res) => {
   } catch (error) {
     console.error('OAuth callback error:', error);
     res.status(500).send('Authentication failed. Please try again.');
+  }
+});
+
+// Gmail OAuth endpoints
+app.get('/auth/gmail/initiate/:telegramId', (req, res) => {
+  const { telegramId } = req.params;
+  const url = gmailOAuth.getAuthUrl(telegramId);
+  res.redirect(url);
+});
+
+app.get('/auth/gmail/callback', async (req, res) => {
+  try {
+    await gmailOAuth.handleCallback(req, res);
+  } catch (err) {
+    console.error('Gmail OAuth callback error:', err);
+    res.status(500).send('Gmail authentication failed.');
+  }
+});
+
+app.get('/auth/gmail/status/:telegramId', async (req, res) => {
+  try {
+    const status = await gmailOAuth.getStatus(req.params.telegramId);
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to check Gmail status' });
   }
 });
 

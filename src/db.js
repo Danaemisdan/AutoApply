@@ -227,6 +227,23 @@ class Database {
       .eq('telegram_id', telegramId);
     return data || [];
   }
+
+  /**
+   * Save Gmail OAuth tokens for a user
+   */
+  async saveGmailTokens({ telegram_id, email, access_token, refresh_token, token_expires_at }) {
+    await supabase.from('gmail_tokens').upsert([
+      { telegram_id, email, access_token, refresh_token, token_expires_at, created_at: new Date() }
+    ], { onConflict: ['telegram_id'] });
+  }
+
+  /**
+   * Get Gmail OAuth tokens for a user
+   */
+  async getGmailTokens(telegramId) {
+    const { data } = await supabase.from('gmail_tokens').select('*').eq('telegram_id', telegramId).single();
+    return data;
+  }
 }
 
 module.exports = new Database(); 

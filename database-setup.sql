@@ -40,6 +40,16 @@ CREATE TABLE IF NOT EXISTS scraped_jobs (
   scraped_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Create gmail OAuth tokens table
+CREATE TABLE IF NOT EXISTS gmail_tokens (
+  telegram_id BIGINT PRIMARY KEY,
+  email TEXT,
+  access_token TEXT,
+  refresh_token TEXT,
+  token_expires_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_telegram_id ON conversations(telegram_id);
