@@ -204,6 +204,29 @@ class Database {
       return false;
     }
   }
+
+  /**
+   * Save a scraped job to the database
+   */
+  async saveScrapedJob(job) {
+    const { telegram_id, job_title, company, job_url, contact_email, scraped_at } = job;
+    await supabase
+      .from('scraped_jobs')
+      .insert([
+        { telegram_id, job_title, company, job_url, contact_email, scraped_at }
+      ]);
+  }
+
+  /**
+   * Get all scraped jobs for a user
+   */
+  async getScrapedJobs(telegramId) {
+    const { data } = await supabase
+      .from('scraped_jobs')
+      .select('*')
+      .eq('telegram_id', telegramId);
+    return data || [];
+  }
 }
 
 module.exports = new Database(); 

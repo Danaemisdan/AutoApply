@@ -5,6 +5,9 @@ const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const TelegramBot = require('./bot');
 const oauth = require('./oauth');
+const scraper = require('./scraper/scraper');
+const emailer = require('./scraper/emailer');
+const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -72,6 +75,35 @@ app.get('/auth/google/callback', async (req, res) => {
   } catch (error) {
     console.error('OAuth callback error:', error);
     res.status(500).send('Authentication failed. Please try again.');
+  }
+});
+
+// Scrape jobs for a user
+app.post('/scrape-jobs/:telegramId', async (req, res) => {
+  const { telegramId } = req.params;
+  try {
+    const jobs = await scraper.scrapeRemotiveJobs(telegramId);
+    res.json({ success: true, jobs_scraped: jobs.length });
+  } catch (err) {
+    console.error('Error scraping jobs:', err);
+    res.status(500).json({ error: 'Failed to scrape jobs' });
+  }
+});
+
+// Send emails to scraped job contacts for a user
+app.post('/send-emails/:telegramId', async (req, res) => {
+  const { telegramId } = req.params;
+  try {
+    // Get user's resume
+    const user = await db.getUserProfile(telegramId);
+    if (!user || !user.resume_text) {
+      return res.status(400).json({ error: 'No resume found for user' });
+    }
+    const sent = await emailer.sendEmailsToScrapedJobs(telegramId, user.resume_text);
+    res.json({ success: true, emails_sent: sent });
+  } catch (err) {
+    console.error('Error sending emails:', err);
+    res.status(500).json({ error: 'Failed to send emails' });
   }
 });
 

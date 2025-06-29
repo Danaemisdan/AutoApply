@@ -29,10 +29,22 @@ CREATE TABLE IF NOT EXISTS conversations (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Create scraped jobs table
+CREATE TABLE IF NOT EXISTS scraped_jobs (
+  id SERIAL PRIMARY KEY,
+  telegram_id BIGINT NOT NULL,
+  job_title TEXT,
+  company TEXT,
+  job_url TEXT,
+  contact_email TEXT,
+  scraped_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_telegram_id ON conversations(telegram_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at);
+CREATE INDEX IF NOT EXISTS idx_scraped_jobs_telegram_id ON scraped_jobs(telegram_id);
 
 -- Create function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -67,5 +79,5 @@ SELECT
   data_type, 
   is_nullable
 FROM information_schema.columns 
-WHERE table_name IN ('users', 'conversations')
+WHERE table_name IN ('users', 'conversations', 'scraped_jobs')
 ORDER BY table_name, ordinal_position; 
