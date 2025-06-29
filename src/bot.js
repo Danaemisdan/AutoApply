@@ -81,7 +81,7 @@ class TelegramBot {
           await ctx.reply('❌ Server misconfiguration: BASE_URL is not set. Please contact support.');
           return;
         }
-        const oauthUrl = `${baseUrl.replace(/\/$/, '')}/auth/gmail/initiate/${telegramId}`;
+        const oauthUrl = `${baseUrl.replace(/\/$/, '')}/auth/gmail/initiate/${telegramId}`.trim();
         console.log(`[${telegramId}] OAuth URL: ${oauthUrl}`);
         await ctx.reply(
           'Great! Now, to send job applications directly from your email, please sign in with Google:',
@@ -149,7 +149,7 @@ class TelegramBot {
           const gmailStatus = await require('./db').getGmailTokens(telegramId);
           if (!gmailStatus || !gmailStatus.access_token) {
             const baseUrl = process.env.BASE_URL;
-            const oauthUrl = `${baseUrl.replace(/\/$/, '')}/auth/gmail/initiate/${telegramId}`;
+            const oauthUrl = `${baseUrl.replace(/\/$/, '')}/auth/gmail/initiate/${telegramId}`.trim();
             await ctx.reply('Please sign in with Google to send applications:',
               Markup.inlineKeyboard([
                 [Markup.button.url('Sign in with Google', oauthUrl)]
