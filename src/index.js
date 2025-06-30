@@ -25,6 +25,8 @@ app.use(rateLimit({
   message: 'Too many requests, try again later.',
 }));
 
+app.set('trust proxy', 1); // Trust Railway/Heroku proxy for correct IP handling
+
 // Health check
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK', time: new Date().toISOString() });
