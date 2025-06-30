@@ -82,7 +82,9 @@ app.get('/auth/google/callback', async (req, res) => {
 });
 
 // Gmail OAuth endpoints
+console.log('Mounting /auth/gmail router...');
 app.use('/auth/gmail', authRoutes);
+console.log('Mounted /auth/gmail router.');
 
 app.get('/auth/gmail/callback', async (req, res) => {
   try {
@@ -140,6 +142,12 @@ app.use((err, req, res, next) => {
 // --- 404 Handler ---
 app.use('*', (req, res) => {
   res.status(404).json({ error: 'Not found' });
+});
+
+// Add catch-all debug route at the end
+app.get('*', (req, res) => {
+  console.log('Route hit:', req.originalUrl);
+  res.send(`Hit ${req.originalUrl}`);
 });
 
 // --- Start Server ---
