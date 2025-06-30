@@ -10,7 +10,7 @@ const scraper = require('./scraper/scraper');
 const emailer = require('./scraper/emailer');
 const db = require('./db');
 const gmailOAuth = require('./gmail_oauth');
-const authRouter = require('./routes/auth');
+const authRoutes = require('./routes/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -82,7 +82,7 @@ app.get('/auth/google/callback', async (req, res) => {
 });
 
 // Gmail OAuth endpoints
-app.use('/auth/gmail', authRouter);
+app.use('/auth/gmail', authRoutes);
 
 app.get('/auth/gmail/callback', async (req, res) => {
   try {
