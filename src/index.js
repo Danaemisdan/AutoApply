@@ -163,4 +163,5 @@ app.listen(PORT, () => {
   console.log(`🔐 OAuth URL: ${BASE_URL}/auth/google`);
   console.log(`🤖 Bot is ready to receive messages!`);
   console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log('Server BASE_URL:', BASE_URL);
 });

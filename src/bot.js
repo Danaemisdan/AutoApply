@@ -216,6 +216,7 @@ class TelegramBot {
    */
   launch() {
     console.log('🤖 Starting Telegram bot...');
+    console.log('Bot BASE_URL:', process.env.BASE_URL);
     this.bot.launch();
     console.log('✅ Bot is running!');
     

@@ -15,6 +15,9 @@ const SCOPES = [
   'https://www.googleapis.com/auth/userinfo.profile'
 ];
 
+console.log('Gmail OAuth BASE_URL:', BASE_URL);
+console.log('Gmail OAuth REDIRECT_URI:', REDIRECT_URI);
+
 function getOAuth2Client() {
   return new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
 }
