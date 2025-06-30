@@ -10,6 +10,11 @@ router.get('/initiate/:telegramId', (req, res) => {
   res.redirect(url);
 });
 
+// Test route for router
+router.get('/test', (req, res) => {
+  res.send('AUTH ROUTER ALIVE');
+});
+
 // You can add more Gmail OAuth routes here if needed
 
 module.exports = router; 

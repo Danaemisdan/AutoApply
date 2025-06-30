@@ -35,6 +35,11 @@ app.get('/', (req, res) => {
   res.send('🤖 JobfinderAI is running!');
 });
 
+// Test alive route
+app.get('/test-alive', (req, res) => {
+  res.send('ALIVE');
+});
+
 // --- Telegram Bot Setup ---
 let telegramBot;
 const botInstance = new TelegramBot();
