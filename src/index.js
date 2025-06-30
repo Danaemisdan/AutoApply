@@ -40,6 +40,11 @@ app.get('/test-alive', (req, res) => {
   res.send('ALIVE');
 });
 
+// Test route
+app.get('/test', (req, res) => {
+  res.send('Test route works');
+});
+
 // --- Telegram Bot Setup ---
 let telegramBot;
 const botInstance = new TelegramBot();
@@ -83,7 +88,8 @@ app.get('/auth/google/callback', async (req, res) => {
 
 // Gmail OAuth endpoints
 console.log('Mounting /auth/gmail router...');
-app.use('/auth/gmail', authRoutes);
+const authRouter = require('./routes/auth');
+app.use('/auth/gmail', authRouter);
 console.log('Mounted /auth/gmail router.');
 
 app.get('/auth/gmail/callback', async (req, res) => {
