@@ -88,7 +88,9 @@ class TelegramBot {
               await ctx.reply('❌ Server misconfiguration: BASE_URL is not set. Please contact support.');
               return;
             }
-            const oauthUrl = `${baseUrl.replace(/\/$/, '')}/auth/gmail/initiate/${telegramId}`.trim();
+            // Clean the base URL to remove any newlines or invalid characters
+            const cleanBaseUrl = baseUrl.replace(/\/$/, '').trim().replace(/\n/g, '').replace(/\r/g, '');
+            const oauthUrl = `${cleanBaseUrl}/auth/gmail/initiate/${telegramId}`.trim();
             console.log(`[${telegramId}] OAuth URL: ${oauthUrl}`);
             await ctx.reply('Sign in with Google is required to proceed.', 
               Markup.inlineKeyboard([
@@ -116,7 +118,9 @@ class TelegramBot {
       if (state.step === 'AWAITING_OAUTH_RETRY') {
         if (text === 'yes') {
           const baseUrl = process.env.BASE_URL;
-          const oauthUrl = `${baseUrl.replace(/\/$/, '')}/auth/gmail/initiate/${telegramId}`.trim();
+          // Clean the base URL to remove any newlines or invalid characters
+          const cleanBaseUrl = baseUrl.replace(/\/$/, '').trim().replace(/\n/g, '').replace(/\r/g, '');
+          const oauthUrl = `${cleanBaseUrl}/auth/gmail/initiate/${telegramId}`.trim();
           await ctx.reply('Sign in with Google is required to proceed.',
             Markup.inlineKeyboard([
               [Markup.button.url('Sign in with Google', oauthUrl)]
