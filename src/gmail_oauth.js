@@ -35,25 +35,62 @@ function getAuthUrl(telegramId) {
 
 // Step 2: Handle Callback
 async function handleCallback(req, res) {
-  const { code, state } = req.query;
-  if (!code || !state) return res.status(400).send('Missing code or state');
-  const telegramId = state;
-  const oauth2Client = getOAuth2Client();
-  const { tokens } = await oauth2Client.getToken(code);
-  oauth2Client.setCredentials(tokens);
-  // Get user email
-  const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-  const profile = await gmail.users.getProfile({ userId: 'me' });
-  const email = profile.data.emailAddress;
-  // Save tokens to DB
-  await db.saveGmailTokens({
-    telegram_id: telegramId,
-    email,
-    access_token: tokens.access_token,
-    refresh_token: tokens.refresh_token,
-    token_expires_at: tokens.expiry_date ? new Date(tokens.expiry_date) : null
-  });
-  res.send('✅ Gmail connected! You can close this window.');
+  try {
+    const { code, state } = req.query;
+    if (!code || !state) {
+      console.error('Missing code or state in OAuth callback');
+      return res.status(400).send('Missing code or state');
+    }
+    
+    const telegramId = state;
+    console.log(`[${telegramId}] Processing Gmail OAuth callback`);
+    
+    const oauth2Client = getOAuth2Client();
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+    
+    // Get user email
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const profile = await gmail.users.getProfile({ userId: 'me' });
+    const email = profile.data.emailAddress;
+    
+    // Save tokens to DB
+    await db.saveGmailTokens({
+      telegram_id: telegramId,
+      email,
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      token_expires_at: tokens.expiry_date ? new Date(tokens.expiry_date) : null
+    });
+    
+    console.log(`[${telegramId}] Gmail OAuth successful for ${email}`);
+    
+    // Call bot's OAuth success handler
+    try {
+      const TelegramBot = require('./bot');
+      await TelegramBot.handleOAuthSuccess(telegramId);
+    } catch (botError) {
+      console.error(`[${telegramId}] Error calling bot OAuth success handler:`, botError);
+    }
+    
+    res.send('✅ Gmail connected! You can close this window.');
+    
+  } catch (error) {
+    console.error('Gmail OAuth callback error:', error);
+    
+    // Try to get telegramId from state for error handling
+    const telegramId = req.query.state;
+    if (telegramId) {
+      try {
+        const TelegramBot = require('./bot');
+        await TelegramBot.handleOAuthFailure(telegramId);
+      } catch (botError) {
+        console.error(`[${telegramId}] Error calling bot OAuth failure handler:`, botError);
+      }
+    }
+    
+    res.status(500).send('❌ Gmail authentication failed. Please try again.');
+  }
 }
 
 // Step 3: Status

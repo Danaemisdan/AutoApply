@@ -47,16 +47,18 @@ class TelegramBot {
       const state = userState[telegramId];
       console.log(`[${telegramId}] State: ${state.step}, Message: ${text}`);
 
-      // Always respond to hi or /start with the button-driven flow
+      // Step 1: User says 'Hi' or '/start' -> bot asks 'Do you want to apply for jobs?'
       if (text === 'hi' || text === '/start') {
-        console.log(`[${telegramId}] Reply: 👋 Hello! Do you want to apply for jobs?`);
-        await ctx.reply('👋 Hello! Do you want to apply for jobs?', Markup.keyboard([['Yes', 'No']]).oneTime().resize());
+        console.log(`[${telegramId}] Reply: Do you want to apply for jobs?`);
+        await ctx.reply('Do you want to apply for jobs?', Markup.keyboard([['Yes', 'No']]).oneTime().resize());
         state.step = 'AWAITING_YESNO';
         return;
       }
+
+      // Step 2: User says 'Yes' -> bot asks for resume
       if (state.step === 'AWAITING_YESNO') {
         if (text === 'yes') {
-          await ctx.reply('Awesome! Please send me your resume (PDF, DOCX, or just paste it here).', Markup.removeKeyboard());
+          await ctx.reply('Send me your resume.', Markup.removeKeyboard());
           state.step = 'AWAITING_RESUME';
         } else if (text === 'no') {
           await ctx.reply('No problem! If you change your mind, just say "hi".');
@@ -66,70 +68,99 @@ class TelegramBot {
         }
         return;
       }
-      // Step 2: Resume upload (as text)
+
+      // Step 3: Resume upload (as text)
       if (state.step === 'AWAITING_RESUME' && text.length > 200) {
         await this.handleResume(ctx, telegramId, text, state);
         return;
       }
-      // Step 3: Preferences
-      if (state.step === 'AWAITING_PREFERENCES') {
-        state.preferences = text;
-        await db.updateUserProfile(telegramId, { job_preferences: text });
-        const baseUrl = process.env.BASE_URL;
-        if (!baseUrl) {
-          console.error('BASE_URL is not set! Set BASE_URL in your Railway environment variables.');
-          await ctx.reply('❌ Server misconfiguration: BASE_URL is not set. Please contact support.');
-          return;
-        }
-        const oauthUrl = `${baseUrl.replace(/\/$/, '')}/auth/gmail/initiate/${telegramId}`.trim();
-        console.log(`[${telegramId}] OAuth URL: ${oauthUrl}`);
-        await ctx.reply(
-          'Great! Now, to send job applications directly from your email, please sign in with Google:',
-          Markup.inlineKeyboard([
-            [Markup.button.url('Sign in with Google', oauthUrl)]
-          ])
-        );
-        state.step = 'AWAITING_OAUTH';
-        state.oauthPendingMsg = await ctx.reply('⏳ Waiting for Gmail connection...');
-        return;
-      }
-      // Step 4: Confirm applying to jobs
-      if (state.step === 'AWAITING_APPLY_CONFIRM') {
+
+      // Step 4: After resume processing, ask if user wants to apply
+      if (state.step === 'AWAITING_APPLY_DECISION') {
         if (text === 'yes') {
-          await ctx.reply('📤 Applying to jobs...');
-          // TODO: Actually send emails using Gmail
-          await ctx.reply('🎉 All done! Applied to 20 jobs. Check your Gmail Sent folder!');
-          state.step = 'DONE';
+          // Check if Gmail OAuth is already connected
+          const gmailStatus = await db.getGmailTokens(telegramId);
+          if (!gmailStatus || !gmailStatus.access_token) {
+            // Step 5: Ask for Google OAuth
+            const baseUrl = process.env.BASE_URL;
+            if (!baseUrl) {
+              console.error('BASE_URL is not set! Set BASE_URL in your Railway environment variables.');
+              await ctx.reply('❌ Server misconfiguration: BASE_URL is not set. Please contact support.');
+              return;
+            }
+            const oauthUrl = `${baseUrl.replace(/\/$/, '')}/auth/gmail/initiate/${telegramId}`.trim();
+            console.log(`[${telegramId}] OAuth URL: ${oauthUrl}`);
+            await ctx.reply('Sign in with Google is required to proceed.', 
+              Markup.inlineKeyboard([
+                [Markup.button.url('Sign in with Google', oauthUrl)]
+              ])
+            );
+            state.step = 'AWAITING_OAUTH';
+            state.oauthPendingMsg = await ctx.reply('⏳ Waiting for Gmail connection...');
+            return;
+          } else {
+            // Gmail already connected, proceed with applications
+            await this.startJobApplications(ctx, telegramId, state);
+            return;
+          }
         } else if (text === 'no') {
-          await ctx.reply('Alright, whenever you\'re ready just type "apply".');
-          state.step = 'READY_TO_APPLY';
+          await ctx.reply('Okay! Let me know if you want to apply later.');
+          state.step = 'GREETING';
         } else {
           await ctx.reply('Please tap Yes or No.');
         }
         return;
       }
+
+      // Step 6: Handle OAuth failure retry
+      if (state.step === 'AWAITING_OAUTH_RETRY') {
+        if (text === 'yes') {
+          const baseUrl = process.env.BASE_URL;
+          const oauthUrl = `${baseUrl.replace(/\/$/, '')}/auth/gmail/initiate/${telegramId}`.trim();
+          await ctx.reply('Sign in with Google is required to proceed.',
+            Markup.inlineKeyboard([
+              [Markup.button.url('Sign in with Google', oauthUrl)]
+            ])
+          );
+          state.step = 'AWAITING_OAUTH';
+          state.oauthPendingMsg = await ctx.reply('⏳ Waiting for Gmail connection...');
+        } else {
+          await ctx.reply('No problem! You can try again later by saying "hi".');
+          state.step = 'GREETING';
+        }
+        return;
+      }
+
       // Fallback
       await next();
     });
 
-    // Step 2: Resume upload (as file)
+    // Resume upload (as file)
     this.bot.on('document', async (ctx) => {
       const telegramId = ctx.from.id.toString();
       if (!userState[telegramId]) userState[telegramId] = { step: 'AWAITING_RESUME' };
       const state = userState[telegramId];
       if (state.step !== 'AWAITING_RESUME') return;
+      
       try {
         const file = await ctx.telegram.getFile(ctx.message.document.file_id);
         const fileUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
         const buffer = await fetch(fileUrl).then(res => res.arrayBuffer());
         const text = await parser.parseFile(Buffer.from(buffer), ctx.message.document.file_name);
+        
         // Save resume
         await db.saveResume(telegramId, text, ctx.message.document.file_name);
-        // Scrape jobs
+        
+        // Extract key details from resume
+        const resumeDetails = await this.extractResumeDetails(text);
+        
+        // Scrape jobs matching the resume
         const jobs = await require('./scraper/scraper').scrapeRemotiveJobs(telegramId);
         state.jobCount = jobs.length;
+        state.resumeDetails = resumeDetails;
         state.step = 'AWAITING_APPLY_DECISION';
-        await ctx.reply(`✅ Got your resume! I found ${jobs.length} jobs matching your profile.\n\nDo you want me to apply to them directly?`,
+        
+        await ctx.reply(`I found ${jobs.length} jobs matching your profile. Do you want me to apply to them directly?`,
           Markup.keyboard([['Yes', 'No']]).oneTime().resize()
         );
       } catch (error) {
@@ -137,78 +168,100 @@ class TelegramBot {
         await ctx.reply('❌ Error processing your resume or scraping jobs. Please try again or upload a different file.');
       }
     });
-
-    // Step 3: Handle apply decision
-    this.bot.on('text', async (ctx, next) => {
-      const telegramId = ctx.from.id.toString();
-      const text = ctx.message.text.trim().toLowerCase();
-      const state = userState[telegramId] || {};
-      if (state.step === 'AWAITING_APPLY_DECISION') {
-        if (text === 'yes') {
-          // Check Gmail auth
-          const gmailStatus = await require('./db').getGmailTokens(telegramId);
-          if (!gmailStatus || !gmailStatus.access_token) {
-            const baseUrl = process.env.BASE_URL;
-            const oauthUrl = `${baseUrl.replace(/\/$/, '')}/auth/gmail/initiate/${telegramId}`.trim();
-            await ctx.reply('Please sign in with Google to send applications:',
-              Markup.inlineKeyboard([
-                [Markup.button.url('Sign in with Google', oauthUrl)]
-              ])
-            );
-            state.step = 'AWAITING_OAUTH';
-            return;
-          }
-          // Send up to 25 applications
-          const resume = await db.getResume(telegramId);
-          const sent = await require('./scraper/emailer').sendEmailsToScrapedJobs(telegramId, resume.resume_text);
-          if (sent >= 25) {
-            await ctx.reply('✅ Sent 25 applications! For more, please subscribe.');
-          } else {
-            await ctx.reply(`✅ Sent ${sent} applications!`);
-          }
-          state.step = 'DONE';
-        } else if (text === 'no') {
-          await ctx.reply('Okay! Let me know if you want to apply later.');
-          state.step = 'DONE';
-        } else {
-          await ctx.reply('Please tap Yes or No.');
-        }
-        return;
-      }
-      await next();
-    });
   }
 
   async handleResume(ctx, telegramId, resumeText, state) {
     try {
       await db.saveResume(telegramId, resumeText, 'uploaded_resume.txt');
-      // Parse for info (mocked for now)
-      const jobTitle = 'Software Engineer';
-      const skills = 'JavaScript, Node.js, React';
-      const jobCount = 20; // TODO: Replace with real scraping
-      await ctx.reply(`✅ Got it! You are a ${jobTitle} skilled in ${skills}.\n\nNice, I found ${jobCount} jobs for you.\n\nNow tell me your preferences: remote or onsite, preferred locations, minimum salary, full-time/part-time/freelance? Please list all your requirements clearly.`);
-      state.step = 'AWAITING_PREFERENCES';
-      state.resumeText = resumeText;
-      state.jobTitle = jobTitle;
-      state.skills = skills;
-      state.jobCount = jobCount;
+      
+      // Extract key details from resume
+      const resumeDetails = await this.extractResumeDetails(resumeText);
+      
+      // Scrape jobs matching the resume
+      const jobs = await require('./scraper/scraper').scrapeRemotiveJobs(telegramId);
+      state.jobCount = jobs.length;
+      state.resumeDetails = resumeDetails;
+      state.step = 'AWAITING_APPLY_DECISION';
+      
+      await ctx.reply(`I found ${jobs.length} jobs matching your profile. Do you want me to apply to them directly?`,
+        Markup.keyboard([['Yes', 'No']]).oneTime().resize()
+      );
     } catch (error) {
       console.error(`[${telegramId}] Error in handleResume:`, error);
       await ctx.reply("Hmm... I couldn't read your resume perfectly. Want to send it again or type your job role and skills manually?");
     }
   }
 
-  async startApplying(ctx, telegramId, state) {
-    // Check Gmail OAuth
-    const gmailStatus = await require('./db').getGmailTokens(telegramId);
-    if (!gmailStatus || !gmailStatus.access_token) {
-      await ctx.reply('❌ Gmail not connected. Please sign in with Google first.');
-      state.step = 'AWAITING_OAUTH';
-      return;
+  async extractResumeDetails(resumeText) {
+    try {
+      // Use LLM to extract key details from resume
+      const prompt = `Extract the following information from this resume in JSON format:
+      - name: Full name
+      - email: Email address
+      - phone: Phone number
+      - skills: Array of skills
+      - experience: Years of experience
+      - jobTitle: Current or desired job title
+      
+      Resume: ${resumeText}
+      
+      Return only valid JSON:`;
+      
+      const response = await llm.generateResponse(prompt);
+      const details = JSON.parse(response);
+      return details;
+    } catch (error) {
+      console.error('Error extracting resume details:', error);
+      return {
+        name: 'User',
+        email: '',
+        phone: '',
+        skills: ['General'],
+        experience: '1+ years',
+        jobTitle: 'Professional'
+      };
     }
-    await ctx.reply(`I found **${state.jobCount || 20} jobs** matching your profile. You can apply to 20 for free. Want me to start applying now?`,
-      Markup.keyboard([['Yes', 'No']]).oneTime().resize());
-    state.step = 'AWAITING_APPLY_CONFIRM';
+  }
+
+  async startJobApplications(ctx, telegramId, state) {
+    try {
+      await ctx.reply('Gmail connected successfully. Starting job applications now...');
+      
+      // Get resume and job count
+      const resume = await db.getResume(telegramId);
+      const jobCount = state.jobCount || 20;
+      
+      // Send applications with real-time updates
+      let appliedCount = 0;
+      const maxApplications = Math.min(jobCount, 25); // Limit to 25 applications
+      
+      for (let i = 1; i <= maxApplications; i++) {
+        try {
+          await ctx.reply(`Applying to Job ${i} of ${maxApplications}...`);
+          
+          // Send email using Gmail API
+          const sent = await require('./scraper/emailer').sendEmailsToScrapedJobs(telegramId, resume.resume_text, 1);
+          if (sent > 0) {
+            appliedCount++;
+          }
+          
+          // Small delay between applications
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+        } catch (error) {
+          console.error(`[${telegramId}] Error applying to job ${i}:`, error);
+          await ctx.reply(`❌ Failed to apply to Job ${i}. Skipping to next...`);
+        }
+      }
+      
+      await ctx.reply(`🎉 Done! Applied to ${appliedCount} jobs. Check your Gmail Sent folder!`);
+      state.step = 'DONE';
+      
+    } catch (error) {
+      console.error(`[${telegramId}] Error in startJobApplications:`, error);
+      await ctx.reply('❌ Error starting job applications. Please try again.');
+      state.step = 'GREETING';
+    }
   }
 
   /**
@@ -230,6 +283,79 @@ class TelegramBot {
    */
   getBot() {
     return this.bot;
+  }
+
+  // Static methods for OAuth callbacks
+  static async handleOAuthSuccess(telegramId) {
+    try {
+      const state = userState[telegramId];
+      if (!state) {
+        console.log(`[${telegramId}] No state found for OAuth success`);
+        return;
+      }
+
+      // Create a mock context for sending messages
+      const bot = new TelegramBot();
+      const mockCtx = {
+        reply: (msg) => bot.bot.telegram.sendMessage(telegramId, msg)
+      };
+
+      // Update OAuth pending message if it exists
+      if (state.oauthPendingMsg) {
+        try {
+          await bot.bot.telegram.editMessageText(
+            state.oauthPendingMsg.chat.id,
+            state.oauthPendingMsg.message_id,
+            null,
+            '✅ Gmail connected successfully!'
+          );
+        } catch (error) {
+          console.error(`[${telegramId}] Error updating OAuth message:`, error);
+        }
+      }
+
+      // Continue with job applications
+      if (state.step === 'AWAITING_OAUTH') {
+        state.step = 'OAUTH_SUCCESS';
+        // Start job applications automatically
+        await bot.startJobApplications(mockCtx, telegramId, state);
+      }
+    } catch (error) {
+      console.error(`[${telegramId}] Error in handleOAuthSuccess:`, error);
+    }
+  }
+
+  static async handleOAuthFailure(telegramId) {
+    try {
+      const state = userState[telegramId];
+      if (!state) return;
+
+      const bot = new TelegramBot();
+
+      // Update OAuth pending message if it exists
+      if (state.oauthPendingMsg) {
+        try {
+          await bot.bot.telegram.editMessageText(
+            state.oauthPendingMsg.chat.id,
+            state.oauthPendingMsg.message_id,
+            null,
+            '❌ Gmail connection failed.'
+          );
+        } catch (error) {
+          console.error(`[${telegramId}] Error updating OAuth failure message:`, error);
+        }
+      }
+
+      // Ask user to retry
+      await bot.bot.telegram.sendMessage(
+        telegramId,
+        'Sign in with Google is required to proceed. Would you like to try again?',
+        Markup.keyboard([['Yes', 'No']]).oneTime().resize()
+      );
+      state.step = 'AWAITING_OAUTH_RETRY';
+    } catch (error) {
+      console.error(`[${telegramId}] Error in handleOAuthFailure:`, error);
+    }
   }
 }
 
